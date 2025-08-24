@@ -1,0 +1,2 @@
+run,threads,lock_type,elapsed_seconds,ops_per_second,final_counter
+1,128,ReentrantLock,2075.232228,-40911.993781,12800128000
