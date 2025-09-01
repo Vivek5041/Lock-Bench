@@ -4,12 +4,17 @@
 #include<pthread.h>
 #include<sys/time.h>
 
-#ifdef SHIELD
+#ifdef SHIELD_A
 #include "shielding_array.h"
 #endif
+
+#ifdef SHIELD_H
+#include "shielding_hash.h"
+#endif
+#define FLAG false
 using namespace std;
 
-#define NUM_ITERATIONS 100000000
+#define NUM_ITERATIONS 1000000000
 #define NUM_WARMUPITERATIONS 10000
 // CPU ranges
 #define CPU_RANGE1_START 64
@@ -18,7 +23,12 @@ using namespace std;
 #define CPU_RANGE2_END 255
 
 int numWorkers;
+
+#ifdef RWLOCK
+pthread_rwlock_t mylock;
+#else
 pthread_mutex_t mylock;
+#endif
 pthread_barrier_t my_barrier;
 struct timeval timeStart, timeEnd;
 
@@ -36,7 +46,7 @@ void set_cpu_affinity(int thread_index) {
     pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 }
 
-void* warmupFunction(void* arg) {
+/*void* warmupFunction(void* arg) {
     //long args = (long)arg;
     long thread_index = *(long*)arg;
     set_cpu_affinity(thread_index);
@@ -46,7 +56,7 @@ void* warmupFunction(void* arg) {
         pthread_mutex_unlock(&mylock);
     }
     return nullptr;
-}
+}*/
 
 void* mainThreadFunction(void* arg) {
     //long args = (long)arg;
@@ -64,9 +74,12 @@ void* mainThreadFunction(void* arg) {
     }
 
     for (long i = 0; i < NUM_WARMUPITERATIONS; i++) {
-#ifdef SHIELD
-	LS_ACQUIRE(&mylock, false, pthread_mutex_lock);
-        LS_RELEASE(&mylock, false, pthread_mutex_unlock);
+#if defined(SHIELD_A) || defined(SHIELD_H)
+	LS_ACQUIRE(&mylock, FLAG, pthread_mutex_lock);
+        LS_RELEASE(&mylock, FLAG, pthread_mutex_unlock);
+#elif defined(RWLOCK)
+        pthread_rwlock_rdlock(&mylock);   // reader lock
+        pthread_rwlock_unlock(&mylock);
 #else
         pthread_mutex_lock(&mylock);
         pthread_mutex_unlock(&mylock);
@@ -77,9 +90,13 @@ void* mainThreadFunction(void* arg) {
 	gettimeofday(&timeStart, 0);
 
     for (long i = 0; i < iterations_per_thread; i++) {
-#ifdef SHIELD
-        LS_ACQUIRE(&mylock, false, pthread_mutex_lock);
-        LS_RELEASE(&mylock, false, pthread_mutex_unlock);
+#if defined(SHIELD_A) || defined(SHIELD_H)
+        LS_ACQUIRE(&mylock, FLAG, pthread_mutex_lock);
+        LS_RELEASE(&mylock, FLAG, pthread_mutex_unlock);
+#elif defined(RWLOCK)
+        pthread_rwlock_rdlock(&mylock);   // reader lock
+        pthread_rwlock_unlock(&mylock);
+
 #else
         pthread_mutex_lock(&mylock);
         pthread_mutex_unlock(&mylock);
@@ -97,6 +114,10 @@ int main(int argc, char* argv[]){
         exit(0);
     }
 
+#ifdef RWLOCK
+    pthread_rwlock_init(&mylock, NULL);
+#else
+
 #ifdef RECURSIVE
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
@@ -112,8 +133,7 @@ int main(int argc, char* argv[]){
 #else
 	pthread_mutex_init(&mylock,NULL);
 #endif
-
-
+#endif
 	
 	long int i=0;
 	long long elapsed=0;
@@ -142,9 +162,12 @@ int main(int argc, char* argv[]){
 	elapsed = (timeEnd.tv_sec-timeStart.tv_sec)*1000000LL + timeEnd.tv_usec-timeStart.tv_usec;
 	//printf ("\nDone. Throughput:	%f	calls/sec\n",NUM_ITERATIONS/(elapsed/(double)1000000));
 	  
-	
+#ifdef RWLOCK
+    	pthread_rwlock_destroy(&mylock);
+#else	
 	pthread_mutex_destroy(&mylock);
-    pthread_barrier_destroy(&my_barrier);    
+#endif
+    	pthread_barrier_destroy(&my_barrier);    
 	//printf ("\nDone.	%f	sec\n",elapsed/(double)1000000);
 	printf ("%d,%f,%f\n",numWorkers, elapsed/(double)1000000, NUM_ITERATIONS/(elapsed/(double)1000000));
 	return 0;

@@ -8,7 +8,12 @@
 #include <atomic>
 #include <pthread.h>
 #include <sched.h>
-
+#ifdef RW
+#include <shared_mutex>
+#endif
+#ifdef SHIELD_A
+#include "shielding_array.h"
+#endif
 using namespace std;
 
 // CPU ranges
@@ -22,6 +27,8 @@ using namespace std;
 
 #ifdef NESTED
 std::recursive_mutex myNestLock;
+#elif defined(RW)
+std::shared_mutex rwlock;
 #else
 std::mutex mylock;
 #endif
@@ -60,6 +67,12 @@ void thread_function(int thread_id, int num_threads)  {
 #ifdef NESTED
         myNestLock.lock();
         myNestLock.unlock();
+
+#elif defined(SHIELD_A)
+        LS_ACQUIRE(&mylock, false, [](void* l){ ((std::mutex*)l)->lock(); });
+        LS_RELEASE(&mylock, false, [](void* l){ ((std::mutex*)l)->unlock(); });
+#elif defined(RW)
+	std::shared_lock<std::shared_mutex> lock(rwlock);
 #else
         mylock.lock();
         mylock.unlock();
@@ -87,6 +100,13 @@ void thread_function(int thread_id, int num_threads)  {
         myNestLock.lock();
 //        do_work(100);
         myNestLock.unlock();
+#elif defined(SHIELD_A)
+        LS_ACQUIRE(&mylock, false, [](void* l){ ((std::mutex*)l)->lock(); });
+        LS_RELEASE(&mylock, false, [](void* l){ ((std::mutex*)l)->unlock(); });
+
+#elif defined(RW)
+	std::shared_lock<std::shared_mutex> lock(rwlock);
+
 #else
         mylock.lock();
 //        do_work(100);
